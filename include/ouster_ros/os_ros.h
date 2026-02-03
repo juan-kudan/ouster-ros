@@ -33,6 +33,34 @@ namespace ouster_ros {
 
 namespace sensor = ouster::sensor;
 
+struct ArcConfig {
+    int arc_angle_deg = 360;   // 30/45/60/90/120/180/360
+    int bins = 1;
+    int width = 0;             // columns_per_frame
+    std::vector<int> start_col;
+    std::vector<int> end_col;
+
+    bool enabled() const { return bins > 1; }
+};
+
+inline ArcConfig make_arc_config(int arc_angle_deg, int columns_per_frame) {
+    ArcConfig a;
+    if (arc_angle_deg != 30 && arc_angle_deg != 45 && arc_angle_deg != 60 &&
+        arc_angle_deg != 90 && arc_angle_deg != 120 && arc_angle_deg != 180)
+        arc_angle_deg = 360;
+
+    a.arc_angle_deg = arc_angle_deg;
+    a.bins = 360 / arc_angle_deg;
+    a.width = columns_per_frame;
+
+    a.start_col.resize(a.bins);
+    a.end_col.resize(a.bins);
+    for (int b = 0; b < a.bins; ++b) {
+        a.start_col[b] = (columns_per_frame * b) / a.bins;
+        a.end_col[b]   = (columns_per_frame * (b + 1)) / a.bins;
+    }
+    return a;
+}
 /**
  * Checks sensor_info if it currently represents a legacy udp lidar profile
  * @param[in] info sensor_info

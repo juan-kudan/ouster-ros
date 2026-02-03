@@ -313,6 +313,10 @@ sensor::sensor_config OusterSensor::parse_config_from_ros_parameters() {
     const int MIN_AZW = 0, MAX_AZW = 360000;
     auto azimuth_window_start = nh.param("azimuth_window_start", MIN_AZW);
     auto azimuth_window_end = nh.param("azimuth_window_end", MAX_AZW);
+    // Handle different arc sizes instead of processing full 360 degree frames
+    // Default behavior is to handle full frames
+    const int ARC_DEFAULT = 360;
+    auto arc_angle = nh.param("arc_angle", ARC_DEFAULT);
 
     if (lidar_port < 0 || lidar_port > 65535) {
         auto error_msg =
@@ -426,6 +430,19 @@ sensor::sensor_config OusterSensor::parse_config_from_ros_parameters() {
     }
 
     config.azimuth_window = {azimuth_window_start, azimuth_window_end};
+
+    // Handle only arc sizes that clearly divides a full frame
+    // Otherwise default back to using full frame
+    if (arc_angle != 30 && arc_angle != 45 &&
+        arc_angle != 60 && arc_angle != 90 &&
+        arc_angle != 120 && arc_angle != 180  && arc_angle != 360) {
+            NODELET_WARN(
+            "arc_angle can only be 30, 45, 60, 90, 120, 180 or 360. "
+            "Defaulting to processing full 360 degree frames.");
+    }
+
+    NODELET_INFO_STREAM("Processing frame sizes of  "
+                    << arc_angle << " degrees.");
 
     return config;
 }

@@ -99,6 +99,15 @@ class OusterImage : public nodelet::Nodelet {
         auto timestamp_mode = pnh.param("timestamp_mode", std::string{});
         double ptp_utc_tai_offset = pnh.param("ptp_utc_tai_offset", -37.0);
 
+        int arc_angle = pnh.param("arc_angle", 360);
+        // Handle only arc sizes that clearly divides a full frame
+        // Otherwise default back to using full frame
+        if (arc_angle != 30 && arc_angle != 45 &&
+            arc_angle != 60 && arc_angle != 90 &&
+            arc_angle != 120 && arc_angle != 180 && arc_angle != 360) {
+                arc_angle = 360;
+        }
+
         auto min_scan_valid_columns_ratio = pnh.param("min_scan_valid_columns_ratio", 0.0f);
         if (min_scan_valid_columns_ratio < 0.0f || min_scan_valid_columns_ratio > 1.0f) {
             NODELET_FATAL("min_scan_valid_columns_ratio needs to be in the range [0, 1]");
@@ -121,7 +130,7 @@ class OusterImage : public nodelet::Nodelet {
         lidar_packet_handler = LidarPacketHandler::create(
             info, processors, timestamp_mode,
             static_cast<int64_t>(ptp_utc_tai_offset * 1e+9),
-            min_scan_valid_columns_ratio);
+            min_scan_valid_columns_ratio, arc_angle);
     }
 
    private:
