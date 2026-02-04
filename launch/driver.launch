@@ -109,6 +109,8 @@
   <arg name="mask_path" default=""
     doc="path to an image file that will be used to mask parts of the pointcloud"/>
 
+  <arg name="arc_angle" default="360" />
+
   <group ns="$(arg ouster_ns)">
     <node pkg="nodelet" type="nodelet" name="os_nodelet_mgr"
       output="screen" required="true" args="manager"/>
@@ -153,6 +155,7 @@
       <param name="~/mask_path" value="$(arg mask_path)"/>
       <param name="~/min_scan_valid_columns_ratio"
         value="$(arg min_scan_valid_columns_ratio)"/>
+      <param name="~/arc_angle" value="$(arg arc_angle)" />
     </node>
   </group>
 
