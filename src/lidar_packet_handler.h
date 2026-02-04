@@ -70,7 +70,7 @@ class LidarPacketHandler {
                        const std::vector<LidarScanProcessor>& handlers,
                        const std::string& timestamp_mode,
                        int64_t ptp_utc_tai_offset,
-                       float min_scan_valid_columns_ratio
+                       float min_scan_valid_columns_ratio,
                        int arc_angle)
         : ring_buffer(LIDAR_SCAN_COUNT),
           lidar_scan_handlers{handlers},
@@ -211,7 +211,7 @@ class LidarPacketHandler {
                             NODELET_WARN_STREAM("number of valid columns per scan " << valid_cols << "/" << status.size()
                              <<" which is below the ratio " << std::setprecision(4) << (100 * min_scan_valid_columns_ratio_)
                              << "%, SKIPPING SCAN");
-                            result = false;
+                            scan_complete = false;
                         }
                     }
                 }

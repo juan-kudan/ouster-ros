@@ -120,65 +120,103 @@ void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
                      const ouster::PointsF& points, uint64_t scan_ts,
                      const ouster::LidarScan& ls,
                      const std::vector<int>& pixel_shift_by_row,
+                     int col0, int col1,
                      bool organized = false, bool destagger = true,
                      int rows_step = 1) {
+    // Clamp slice bounds
+    col0 = std::max(0, col0);
+    col1 = std::min(col1, static_cast<int>(ls.w));
+    if (col1 <= col0) {
+        cloud.clear();
+        cloud.is_dense = true;
+        cloud.width = 0;
+        cloud.height = 1;
+        return;
+    }
+
+    const int slice_w = col1 - col0;
+
     auto ls_tuple = make_lidar_scan_tuple<0, N, PROFILE>(ls);
     auto timestamp = ls.timestamp();
 
-    if (!organized) cloud.clear();
-    cloud.is_dense = true;
+    if (!organized) {
+        cloud.clear();
+        cloud.is_dense = true;
+        cloud.height = 1;
+        cloud.width = 0;
+        cloud.points.reserve(static_cast<size_t>(ls.h / rows_step) *
+                             static_cast<size_t>(slice_w));
+    } else {
+        // Organized slice: width is slice_w, not ls.w
+        cloud.points.resize(static_cast<size_t>(ls.h / rows_step) *
+                            static_cast<size_t>(slice_w));
+        cloud.width = slice_w;
+        cloud.height = ls.h / rows_step;
+        cloud.is_dense = true;
+    }
 
-    for (auto u = 0; u < ls.h; u += rows_step) {
-        for (auto v = 0; v < ls.w; ++v) {   // TODO[UN]: consider cols_step in future
-            const auto v_shift =
+    for (int u = 0, out_u = 0; u < ls.h; u += rows_step, ++out_u) {
+        for (int v = col0; v < col1; ++v) {
+            const int v_shift =
                 destagger ? (v + ls.w - pixel_shift_by_row[u]) % ls.w : v;
-            const auto src_idx = u * ls.w + v_shift;
-            const auto xyz = points.row(src_idx);
-            const auto tgt_idx =
-                organized ? (u / rows_step) * ls.w + v : cloud.size();
 
-            // as opposed to the point cloud destaggering if it is disabled
-            // then timestamps needs to be staggered.
-            auto ts_idx =
+            const int src_idx = u * ls.w + v_shift;
+            const auto xyz = points.row(src_idx);
+
+            const int out_v = v - col0;
+            const size_t tgt_idx =
+                organized ? (static_cast<size_t>(out_u) * static_cast<size_t>(slice_w) +
+                             static_cast<size_t>(out_v))
+                          : cloud.size();
+
+            // If destagger is disabled, timestamps need to be staggered.
+            const int ts_idx =
                 destagger ? v : (v + ls.w + pixel_shift_by_row[u]) % ls.w;
-            auto ts =
-                timestamp[ts_idx] > scan_ts ? timestamp[ts_idx] - scan_ts : 0UL;
+            const uint64_t ts =
+                timestamp[ts_idx] > scan_ts ? (timestamp[ts_idx] - scan_ts) : 0UL;
 
             if (organized) {
-                // false if any point in cloud has NaN values
                 cloud.is_dense &= !xyz.isNaN().any();
             } else {
-                if (xyz.isNaN().any())
-                    continue;
-                else
-                    cloud.points.emplace_back();
+                if (xyz.isNaN().any()) continue;
+                cloud.points.emplace_back();
             }
 
-
-            // if target point and staging point has matching type bind the
-            // target directly and avoid performing transform_point at the end
             auto& pt = CondBinaryBind<std::is_same_v<PointT, PointS>>::run(
                 cloud.points[tgt_idx], staging_point);
-            // all native point types have x, y, z, t and ring values
+
             pt.x = static_cast<decltype(pt.x)>(xyz(0));
             pt.y = static_cast<decltype(pt.y)>(xyz(1));
             pt.z = static_cast<decltype(pt.z)>(xyz(2));
-            // TODO: in the future we could probably skip copying t and ring
-            // values if known before hand that the target point cloud does
-            // not have a field to hold the timestamp or a ring for example the
-            // case of pcl::PointXYZ or pcl::PointXYZI.
             pt.t = static_cast<uint32_t>(ts);
             pt.ring = static_cast<uint16_t>(u);
+
             copy_lidar_scan_fields_to_point<0>(pt, ls_tuple, src_idx);
-            // only perform point transform operation when PointT, and PointS
-            // don't match
+
             CondBinaryOp<!std::is_same_v<PointT, PointS>>::run(
                 cloud.points[tgt_idx], staging_point,
-                [](auto& tgt_pt, const auto& src_pt) {
-                    point::transform(tgt_pt, src_pt);
-                });
+                [](auto& tgt_pt, const auto& src_pt) { point::transform(tgt_pt, src_pt); });
         }
     }
+
+    if (!organized) {
+        cloud.width = static_cast<uint32_t>(cloud.points.size());
+        cloud.height = 1;
+    }
+}
+
+template <std::size_t N, const ChanFieldTable<N>& PROFILE, typename PointT,
+          typename PointS>
+void scan_to_cloud_f(ouster_ros::Cloud<PointT>& cloud, PointS& staging_point,
+                     const ouster::PointsF& points, uint64_t scan_ts,
+                     const ouster::LidarScan& ls,
+                     const std::vector<int>& pixel_shift_by_row,
+                     bool organized = false, bool destagger = true,
+                     int rows_step = 1) {
+    scan_to_cloud_f<N, PROFILE, PointT, PointS>(
+        cloud, staging_point, points, scan_ts, ls, pixel_shift_by_row,
+        0, static_cast<int>(ls.w),
+        organized, destagger, rows_step);
 }
 
 }  // namespace ouster_ros

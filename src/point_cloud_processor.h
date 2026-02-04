@@ -32,10 +32,11 @@ template <class PointT>
 class PointCloudProcessor {
    public:
     using ScanToCloudFn = std::function<void(ouster_ros::Cloud<PointT>& cloud,
-                                        const ouster::PointsF& points,
-                                        uint64_t scan_ts, const ouster::LidarScan& ls,
-                                        const std::vector<int>& pixel_shift_by_row,
-                                        int return_index)>;
+                                            const ouster::PointsF& points,
+                                            uint64_t scan_ts, const ouster::LidarScan& ls,
+                                            const std::vector<int>& pixel_shift_by_row,
+                                            int return_index,
+                                            int col0, int col1)>;
 
    public:
     PointCloudProcessor(const ouster::sensor::sensor_info& info,
@@ -86,16 +87,29 @@ class PointCloudProcessor {
     }
 
     void process(const ouster::LidarScan& lidar_scan, uint64_t scan_ts,
-                 const ros::Time& msg_ts) {
+                const ros::Time& msg_ts) {
+
+        int c0 = 0, c1 = lidar_scan.w;
+        // If this is an arc scan, status outside arc is 0; detect the active range.
+        // If not arc mode, this should return full width anyway (or false); fall back.
+        if (!find_active_columns(lidar_scan, c0, c1)) {
+            c0 = 0;
+            c1 = lidar_scan.w;
+        }
+
         for (int i = 0; i < static_cast<int>(pc_msgs.size()); ++i) {
-            auto range_ch = static_cast<sensor::ChanField>(sensor::ChanField::RANGE + i);
+            auto range_ch =
+                static_cast<sensor::ChanField>(sensor::ChanField::RANGE + i);
             auto range = lidar_scan.field<uint32_t>(range_ch);
             auto range_masked = mask.size() != 0 ? range * mask : range;
-            ouster::cartesianT(points, range_masked, lut_direction, lut_offset,
-                               min_range_, max_range_,
-                               std::numeric_limits<float>::quiet_NaN());
 
-            scan_to_cloud_fn(cloud, points, scan_ts, lidar_scan, pixel_shift_by_row, i);
+            ouster::cartesianT(points, range_masked, lut_direction, lut_offset,
+                            min_range_, max_range_,
+                            std::numeric_limits<float>::quiet_NaN());
+
+            // Pass slice bounds
+            scan_to_cloud_fn(cloud, points, scan_ts, lidar_scan, pixel_shift_by_row,
+                            i, c0, c1);
 
             pcl_toROSMsg(cloud, *pc_msgs[i]);
             pc_msgs[i]->header.stamp = msg_ts;
@@ -143,6 +157,27 @@ class PointCloudProcessor {
     PointCloudProcessor_PostProcessingFn post_processing_fn;
 
     ouster::img_t<uint32_t> mask;
+
+    static inline bool find_active_columns(const ouster::LidarScan& ls, int& c0, int& c1) {
+        auto st = ls.status();
+        const int W = ls.w;
+
+        int first = -1;
+        for (int v = 0; v < W; ++v) {
+            if (st[v] & 0x01) { first = v; break; }
+        }
+        if (first < 0) return false;
+
+        int last = -1;
+        for (int v = W - 1; v >= 0; --v) {
+            if (st[v] & 0x01) { last = v; break; }
+        }
+        if (last < 0) return false;
+
+        c0 = first;
+        c1 = last + 1; // exclusive
+        return true;
+    }
 };
 
 }  // namespace ouster_ros
